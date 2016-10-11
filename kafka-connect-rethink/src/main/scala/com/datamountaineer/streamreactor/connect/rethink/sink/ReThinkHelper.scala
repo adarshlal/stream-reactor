@@ -33,7 +33,7 @@ import scala.util.{Failure, Success, Try}
   * Created by andrew@datamountaineer.com on 24/06/16. 
   * stream-reactor-maven
   */
-object ReThinkSinkConverter extends StrictLogging {
+object ReThinkHelper extends StrictLogging {
 
 
   /**
@@ -71,85 +71,14 @@ object ReThinkSinkConverter extends StrictLogging {
           .run(conn)
 
         Try(create) match {
-          case Success(s) => {
+          case Success(s) =>
             //logger.info(create.mkString(","))
             logger.info(s"Created table ${r.getTarget}.")
-          }
-          case Failure(f) => {
+          case Failure(f) =>
             logger.error(s"Failed to create table ${r.getTarget}." +
               s" Error message  ${create.mkString(",")}, ${f.getMessage}")
-          }
         }
       })
   }
 
-  /**
-    * Convert a SinkRecord to a ReThink MapObject
-    *
-    * @param record The sinkRecord to convert
-    * @return A List of MapObjects to insert
-    **/
-  def convertToReThink(rethink: RethinkDB, record: SinkRecord, primaryKeys: Set[String]): MapObject = {
-    val s = record.value().asInstanceOf[Struct]
-    val schema = record.valueSchema()
-    val fields = schema.fields()
-    val mo = rethink.hashMap()
-    val connectKey = s"${record.topic()}-${record.kafkaPartition().toString}-${record.kafkaOffset().toString}"
-
-    //set id field
-    if (primaryKeys.nonEmpty) {
-      mo.`with`(primaryKeys.head, s.get(primaryKeys.head).toString)
-    } else {
-      mo.`with`("id", connectKey)
-    }
-
-    //add the sinkrecord fields to the MapObject
-    fields.map(f => buildField(rethink, f, s, mo))
-    mo
-  }
-
-  //  private def concatPrimaryKeys(keys :St, struct: Struct) = {
-  //    logger.info("Concat key")
-  //    keys.map(k => {
-  //      logger.info(s"Concat key $k")
-  //      struct.get(k)
-  //    }).mkString("-")
-  //  }
-
-  /**
-    * Recursively build a MapObject to represent a field
-    *
-    * @param field  The field schema to add
-    * @param struct The struct to extract the value from
-    * @param hm     The HashMap
-    **/
-  private def buildField(rethink: RethinkDB, field: Field, struct: Struct, hm: MapObject): MapObject = {
-    field.schema().`type`() match {
-      case Type.STRUCT =>
-        val nested = struct.getStruct(field.name())
-        val schema = nested.schema()
-        val fields = schema.fields()
-        val mo = rethink.hashMap()
-        fields.map(f => buildField(rethink, f, nested, mo))
-        hm.`with`(field.name, mo)
-      case Type.BYTES =>
-        if (field.schema().name() == Decimal.LOGICAL_NAME) {
-          val decimal = Decimal.toLogical(field.schema(), struct.getBytes(field.name()))
-          hm.`with`(field.name(), decimal)
-        } else {
-
-          val str = new String(struct.getBytes(field.name()), "utf-8")
-          hm.`with`(field.name(), str)
-        }
-
-      case _ =>
-        val value = field.schema().name() match {
-          case Time.LOGICAL_NAME => Time.toLogical(field.schema(), struct.getInt32(field.name()))
-          case Timestamp.LOGICAL_NAME => Timestamp.toLogical(field.schema(), struct.getInt64(field.name()))
-          case Date.LOGICAL_NAME => Date.toLogical(field.schema(), struct.getInt32(field.name()))
-          case _ => struct.get(field.name())
-        }
-        hm.`with`(field.name(), value)
-    }
-  }
 }
